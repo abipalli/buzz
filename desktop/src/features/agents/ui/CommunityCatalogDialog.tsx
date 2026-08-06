@@ -19,6 +19,7 @@ import agentOutlineUrl from "../assets/agent-outline.svg";
 import { AgentDefinitionMetadata } from "./AgentDefinitionMetadata";
 import { PersonaAddedBy } from "./PersonaAddedBy";
 import { resolveCatalogOwnerLabel } from "./catalogOwnerLabel";
+import { nextCatalogSelection } from "./communityCatalogSelection";
 
 // Inline instruction markdown class — no external consumers so kept internal.
 const agentInstructionMarkdownClassName = [
@@ -109,36 +110,48 @@ export function CommunityCatalogDialog({
     string | null
   >(null);
 
+  // Tracks whether the user has explicitly clicked an item since the dialog
+  // opened. When true, automatic initialization must not overwrite it.
+  const [userHasSelected, setUserHasSelected] = React.useState(false);
+
   // Compute the preferred first item for each section.
   const firstPersonaKey =
     personas.length > 0 ? encodeKey(selectionKeyFor(personas[0])) : null;
   const firstTeamKey =
     teams.length > 0 ? encodeKey(teamKeyFor(teams[0])) : null;
 
-  // When the dialog opens (or the preference changes), preselect the requested
-  // section — fall back to the other nonempty section if it's empty.
+  // When the dialog opens or any dependency changes, run the selection
+  // initialization logic. Respects the launch preference without committing
+  // a cross-section fallback while the preferred section is still loading,
+  // and never overwrites an explicit user selection.
   React.useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Reset user-selection guard whenever the dialog closes so the next
+      // open gets a fresh auto-init.
+      setUserHasSelected(false);
+      return;
+    }
 
-    setSelectedEncodedKey((current) => {
-      // Keep the current selection if the item still exists.
-      if (current) {
-        if (current.startsWith("p:")) {
-          const id = current.slice(2);
-          if (personas.some((p) => p.id === id)) return current;
-        } else if (current.startsWith("t:")) {
-          const key = current.slice(2);
-          if (teams.some((t) => teamSelectionKey(t) === key)) return current;
-        }
-      }
-
-      // Preselect by preference, with cross-section fallback.
-      if (preferSection === "agents") {
-        return firstPersonaKey ?? firstTeamKey;
-      }
-      return firstTeamKey ?? firstPersonaKey;
-    });
-  }, [open, preferSection, personas, teams, firstPersonaKey, firstTeamKey]);
+    setSelectedEncodedKey((current) =>
+      nextCatalogSelection(
+        current,
+        userHasSelected,
+        preferSection,
+        personasLoading,
+        teamsLoading,
+        firstPersonaKey,
+        firstTeamKey,
+      ),
+    );
+  }, [
+    open,
+    preferSection,
+    personasLoading,
+    teamsLoading,
+    firstPersonaKey,
+    firstTeamKey,
+    userHasSelected,
+  ]);
 
   useFeedbackToasts(feedbackNoticeMessage, feedbackErrorMessage);
 
@@ -228,7 +241,10 @@ export function CommunityCatalogDialog({
                             )}
                             data-testid={`community-catalog-agent-${persona.id}`}
                             key={persona.id}
-                            onClick={() => setSelectedEncodedKey(key)}
+                            onClick={() => {
+                              setUserHasSelected(true);
+                              setSelectedEncodedKey(key);
+                            }}
                             type="button"
                           >
                             <ProfileAvatar
@@ -268,7 +284,10 @@ export function CommunityCatalogDialog({
                             )}
                             data-testid={`community-catalog-team-${teamSelectionKey(team)}`}
                             key={teamSelectionKey(team)}
-                            onClick={() => setSelectedEncodedKey(key)}
+                            onClick={() => {
+                              setUserHasSelected(true);
+                              setSelectedEncodedKey(key);
+                            }}
                             type="button"
                           >
                             <span className="min-w-0 flex-1 truncate text-sm font-medium">
